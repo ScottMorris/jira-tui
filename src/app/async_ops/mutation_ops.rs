@@ -4,7 +4,7 @@
 
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::domain::{Attachment, Comment, Priority, Sprint};
+use crate::domain::{Attachment, Comment, IssueLink, LinkDirection, Priority, Sprint};
 
 use super::super::{App, ReleaseBulkKind, Screen};
 use super::AppEvent;
@@ -90,6 +90,59 @@ fn assign_issue_blocking(key: &str, account_id: Option<&str>) -> Option<String> 
             return crate::jira::assign_issue(&cfg, key, account_id)
                 .err()
                 .map(|e| e.to_string());
+        }
+    }
+    None
+}
+
+/// Spawn an issue-link creation off the render thread, sending the result
+/// back as `AppEvent::IssueLinkCreated`. `link` is the locally-constructed
+/// `IssueLink` to display on success — see `AppEvent::IssueLinkCreated`'s
+/// doc comment for why it's built at dispatch time rather than from the
+/// (empty) response body.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn dispatch_create_issue_link(
+    tx: UnboundedSender<AppEvent>,
+    generation: u64,
+    source_key: String,
+    type_name: String,
+    direction: LinkDirection,
+    target_key: String,
+    link: IssueLink,
+) {
+    tokio::spawn(async move {
+        let key_for_result = source_key.clone();
+        let error = tokio::task::spawn_blocking(move || {
+            create_issue_link_blocking(&type_name, &source_key, &target_key, direction)
+        })
+        .await
+        .unwrap_or_else(|_| Some("internal error: task panicked".into()));
+        let _ = tx.send(AppEvent::IssueLinkCreated {
+            generation,
+            key: key_for_result,
+            link,
+            error,
+        });
+    });
+}
+
+/// Mirrors `assign_issue_blocking`'s "no credentials means nothing to do
+/// live" shape.
+#[allow(unused_variables)]
+fn create_issue_link_blocking(
+    type_name: &str,
+    source_key: &str,
+    target_key: &str,
+    direction: LinkDirection,
+) -> Option<String> {
+    #[cfg(feature = "live")]
+    {
+        if let Some(cfg) = crate::jira::Config::load() {
+            return crate::jira::create_issue_link(
+                &cfg, type_name, source_key, target_key, direction,
+            )
+            .err()
+            .map(|e| e.to_string());
         }
     }
     None
@@ -1131,6 +1184,30 @@ impl App {
             Some(name) => format!("✓ assigned to {name}"),
             None => "✓ unassigned".to_string(),
         });
+    }
+
+    /// Applies `AppEvent::IssueLinkCreated` — see
+    /// `App::confirm_link_type`/`dispatch_create_issue_link`. Stale-generation
+    /// guard mirrors `apply_assignee_applied`'s exactly.
+    pub(super) fn apply_issue_link_created(
+        &mut self,
+        generation: u64,
+        key: String,
+        link: IssueLink,
+        error: Option<String>,
+    ) {
+        if generation != self.link_generation {
+            return;
+        }
+        self.loading = false;
+        self.link_pending = false;
+        if let Some(e) = error {
+            self.status = format!("link failed: {e}");
+            return;
+        }
+        self.apply_issue_link_locally(&key, link.clone());
+        self.status = format!("linked {key} — {} {}", link.relation, link.key);
+        self.flash(format!("✓ linked to {}", link.key));
     }
 
     /// Applies `AppEvent::VersionsApplied` — see `dispatch_set_versions`

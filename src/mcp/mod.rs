@@ -17,7 +17,7 @@ use rmcp::{
 };
 use serde::Deserialize;
 
-use crate::domain::{demo_detail, demo_issues, IssueSummary};
+use crate::domain::{demo_detail, demo_issues, IssueSummary, LinkDirection};
 
 fn live_cfg() -> Result<crate::jira::Config, McpError> {
     crate::jira::Config::load().ok_or_else(|| {
@@ -118,6 +118,17 @@ struct TransitionIssueParams {
     key: String,
     /// Transition id or exact transition name (see `list_transitions`).
     transition: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct CreateIssueLinkParams {
+    /// Issue key the link is created from, e.g. "DS-123".
+    source_key: String,
+    /// Issue key being linked to, e.g. "DS-456".
+    target_key: String,
+    /// The relation from `source_key`'s perspective, e.g. "blocks",
+    /// "is blocked by", "relates to", "duplicates" (see `list_link_types`).
+    relation: String,
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -513,6 +524,58 @@ impl JiraMcpServer {
         crate::jira::apply_transition(&cfg, &key, &matched.id)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(format!("Transitioned {key} to {}", matched.to))
+    }
+
+    #[tool(
+        description = "List the instance's issue-link types (Blocks, Duplicate, Relates, Cloners, plus any custom types), each with its inward/outward relation labels."
+    )]
+    fn list_link_types(&self) -> Result<String, McpError> {
+        let cfg = live_cfg()?;
+        let types = crate::jira::fetch_link_types(&cfg)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        to_json(&types)
+    }
+
+    #[tool(
+        description = "Create a link between two issues (e.g. source_key 'blocks' target_key) — see list_link_types for the available relation labels. Requires live Jira credentials."
+    )]
+    fn create_issue_link(
+        &self,
+        Parameters(CreateIssueLinkParams {
+            source_key,
+            target_key,
+            relation,
+        }): Parameters<CreateIssueLinkParams>,
+    ) -> Result<String, McpError> {
+        if source_key.eq_ignore_ascii_case(&target_key) {
+            return Err(McpError::invalid_params(
+                "source_key and target_key must be different issues".to_string(),
+                None,
+            ));
+        }
+        let cfg = live_cfg()?;
+        let types = crate::jira::fetch_link_types(&cfg)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let (type_name, direction) = types
+            .iter()
+            .find_map(|t| {
+                if t.outward.eq_ignore_ascii_case(&relation) {
+                    Some((t.name.clone(), LinkDirection::Outward))
+                } else if t.inward.eq_ignore_ascii_case(&relation) {
+                    Some((t.name.clone(), LinkDirection::Inward))
+                } else {
+                    None
+                }
+            })
+            .ok_or_else(|| {
+                McpError::invalid_params(
+                    format!("no link relation '{relation}' available; call list_link_types first"),
+                    None,
+                )
+            })?;
+        crate::jira::create_issue_link(&cfg, &type_name, &source_key, &target_key, direction)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        Ok(format!("Linked {source_key} — {relation} {target_key}"))
     }
 
     #[tool(

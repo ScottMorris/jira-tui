@@ -6,7 +6,7 @@ use serde_json::json;
 
 use super::types::{
     AssignableUser, Attachment, ChildIssue, Comment, IssueDetail, IssueLink, IssueSummary,
-    IssueType, Priority, Project, Sprint, Transition, Version,
+    IssueType, LinkType, Priority, Project, Sprint, Transition, Version,
 };
 
 /// The implicit "you" in demo mode — offline `Source::Demo` carries no real
@@ -170,6 +170,39 @@ pub fn demo_assignable_users() -> Vec<AssignableUser> {
         AssignableUser {
             account_id: "demo-jane-reporter".into(),
             display_name: "jane.reporter".into(),
+        },
+    ]
+}
+
+/// Offline stand-in for `jira::live::fetch_link_types` — the standard Jira
+/// Cloud default catalog, so the link-type picker (`L`) is fully explorable
+/// in demo mode and in a cache-only session with no live client to ask. See
+/// `App::link_types_source`.
+pub fn demo_link_types() -> Vec<LinkType> {
+    vec![
+        LinkType {
+            id: "demo-blocks".into(),
+            name: "Blocks".into(),
+            inward: "is blocked by".into(),
+            outward: "blocks".into(),
+        },
+        LinkType {
+            id: "demo-duplicate".into(),
+            name: "Duplicate".into(),
+            inward: "is duplicated by".into(),
+            outward: "duplicates".into(),
+        },
+        LinkType {
+            id: "demo-relates".into(),
+            name: "Relates".into(),
+            inward: "relates to".into(),
+            outward: "relates to".into(),
+        },
+        LinkType {
+            id: "demo-cloners".into(),
+            name: "Cloners".into(),
+            inward: "is cloned by".into(),
+            outward: "clones".into(),
         },
     ]
 }

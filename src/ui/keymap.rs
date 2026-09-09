@@ -162,6 +162,11 @@ pub(crate) const KEYMAP: &[KeyHint] = &[
         desc: "jump to comments section / back to top",
     },
     KeyHint {
+        key: "L",
+        desc: "link this issue to another (in an issue or quick view) — pick a link type, \
+               then search for the target issue",
+    },
+    KeyHint {
         key: "n / p",
         desc: "next / previous comment",
     },
@@ -258,6 +263,13 @@ mod tests {
     #[test]
     fn facts_panel_fold_key_is_registered() {
         assert!(has_key("x"), "`x` (fold facts panel) should be documented");
+    }
+
+    /// Issue #156: `L` opens the link-type picker to create a new issue
+    /// link — a new binding, verified unbound before it.
+    #[test]
+    fn link_issue_key_is_registered() {
+        assert!(has_key("L"), "`L` (link this issue) should be documented");
     }
 
     /// SPEC.md §8: `ctrl-k` opens the command palette — a new binding

@@ -241,13 +241,30 @@ fn footer_groups(app: &App) -> Vec<FooterGroup> {
                 hint("esc", "cancel"),
             ])
         }
-        Screen::Search if app.search.purpose != crate::app::SearchPurpose::GoTo => single(vec![
-            hint("type", "to filter"),
-            hint("↑/↓", "move"),
-            hint("tab", "toggle selected"),
-            hint("⏎", "add selected"),
-            hint("esc", "cancel"),
-        ]),
+        Screen::Search
+            if matches!(
+                app.search.purpose,
+                crate::app::SearchPurpose::AddToRelease(_)
+            ) =>
+        {
+            single(vec![
+                hint("type", "to filter"),
+                hint("↑/↓", "move"),
+                hint("tab", "toggle selected"),
+                hint("⏎", "add selected"),
+                hint("esc", "cancel"),
+            ])
+        }
+        Screen::Search
+            if matches!(app.search.purpose, crate::app::SearchPurpose::LinkTo { .. }) =>
+        {
+            single(vec![
+                hint("type", "to filter"),
+                hint("↑/↓", "move"),
+                hint("⏎", "link"),
+                hint("esc", "cancel"),
+            ])
+        }
         Screen::Search => single(vec![
             hint("type", "to filter"),
             hint("↑/↓", "move"),

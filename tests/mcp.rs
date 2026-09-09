@@ -209,6 +209,66 @@ fn delete_comment_tool_exists_and_requires_key_and_comment_id() {
     );
 }
 
+/// `list_link_types` should exist and take no required params.
+#[test]
+fn list_link_types_tool_exists() {
+    let mut mcp = McpProcess::spawn();
+    let tools = mcp.list_tools();
+
+    find_tool(&tools, "list_link_types");
+}
+
+/// `create_issue_link` should exist and require `source_key`, `target_key`,
+/// and `relation`.
+#[test]
+fn create_issue_link_tool_exists_and_requires_all_fields() {
+    let mut mcp = McpProcess::spawn();
+    let tools = mcp.list_tools();
+
+    let tool = find_tool(&tools, "create_issue_link");
+    let required = required_params(tool);
+    assert!(
+        required.contains(&"source_key".to_string()),
+        "create_issue_link should require a `source_key` field, got: {required:?}"
+    );
+    assert!(
+        required.contains(&"target_key".to_string()),
+        "create_issue_link should require a `target_key` field, got: {required:?}"
+    );
+    assert!(
+        required.contains(&"relation".to_string()),
+        "create_issue_link should require a `relation` field, got: {required:?}"
+    );
+}
+
+/// `create_issue_link` should reject `source_key == target_key` outright —
+/// this guard runs before the tool ever loads live Jira credentials, so it's
+/// exercisable here with none configured (unlike a real link creation,
+/// which needs a live session and so isn't covered by this process-level
+/// schema test file).
+#[test]
+fn create_issue_link_rejects_linking_an_issue_to_itself() {
+    let mut mcp = McpProcess::spawn();
+    mcp.list_tools(); // completes the initialize handshake
+    let resp = mcp
+        .send(
+            "tools/call",
+            serde_json::json!({
+                "name": "create_issue_link",
+                "arguments": {
+                    "source_key": "DS-1",
+                    "target_key": "DS-1",
+                    "relation": "blocks",
+                },
+            }),
+        )
+        .unwrap();
+    assert!(
+        resp.to_string().contains("must be different issues"),
+        "expected the self-link guard's message, got: {resp}"
+    );
+}
+
 /// `update_description_markdown`'s markdown field should itself be named
 /// `description_markdown` (previously just `markdown`), matching
 /// `create_issue`'s `description_markdown` field for the same concept.

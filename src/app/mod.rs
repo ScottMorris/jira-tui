@@ -22,7 +22,7 @@ use ratatui::layout::Rect;
 use crate::adf;
 use crate::config::{self, Settings};
 use crate::domain::{
-    AssignableUser, IssueDetail, IssueSummary, Project, Source, Sprint, Version, ViewKind,
+    AssignableUser, IssueDetail, IssueSummary, LinkType, Project, Source, Sprint, Version, ViewKind,
 };
 use crate::git::GitContext;
 
@@ -38,6 +38,7 @@ mod file_browser;
 mod history;
 #[cfg(feature = "images")]
 pub(crate) mod inline_images;
+mod link_issue;
 mod links;
 mod loader;
 mod mouse;
@@ -77,6 +78,7 @@ pub(crate) use history::{NavEntry, NavHistory};
 pub(crate) use inline_images::whole_line_media_url;
 #[cfg(feature = "images")]
 pub use inline_images::{BoundedCache, InlineImageKey};
+pub use link_issue::{LinkPickerRow, LinkPickerState};
 pub use mouse::{ListFocus, MouseState, SelectionSpan};
 pub(crate) use new_issue::LocallyCreatedIssue;
 pub use new_issue::{NewIssueField, NewIssueState};
@@ -620,6 +622,19 @@ pub struct App {
     /// `domain::demo_assignable_users()` instead — see
     /// `App::assignable_users_source`).
     pub(crate) assignable_users: Vec<AssignableUser>,
+    /// The instance's issue-link-type catalog, as fetched by
+    /// `async_ops::dispatch_link_type_discovery` for a live session (empty
+    /// for demo/cache sessions, which fall back to
+    /// `domain::demo_link_types()` instead — see `App::link_types_source`).
+    pub(crate) link_types: Vec<LinkType>,
+    /// Whether the link-type picker (`L`) is currently open.
+    pub link_picker_open: bool,
+    pub link_picker: LinkPickerState,
+    /// Whether a link creation is currently in flight. Mirrors
+    /// `assignee_pending`: `open_link_picker` refuses to reopen while this is
+    /// set, so `link_generation` can never go stale mid-flight.
+    pub(crate) link_pending: bool,
+    pub(crate) link_generation: u64,
     /// Every project the authenticated user can access, as fetched by
     /// `async_ops::dispatch_accessible_projects` for a live session (empty
     /// for demo/cache sessions, which fall back to
@@ -833,6 +848,11 @@ impl App {
             palette_open: false,
             palette: PaletteState::default(),
             assignable_users: Vec::new(),
+            link_types: Vec::new(),
+            link_picker_open: false,
+            link_picker: LinkPickerState::default(),
+            link_pending: false,
+            link_generation: 0,
             accessible_projects: Vec::new(),
             project_picker_open: false,
             project_picker: ProjectPickerState::default(),
@@ -868,6 +888,7 @@ impl App {
         // be lazy or gated on the initial view.
         if matches!(app.source, Source::Live { .. }) {
             async_ops::dispatch_teammate_discovery(app.events_tx.clone());
+            async_ops::dispatch_link_type_discovery(app.events_tx.clone());
             async_ops::dispatch_project_versions(app.events_tx.clone());
             async_ops::dispatch_accessible_projects(app.events_tx.clone());
             // Only meaningful once `sprint_board_id` is configured — see

@@ -440,3 +440,75 @@ fn confirm_search_in_bulk_mode_with_nothing_toggled_uses_the_highlighted_row() {
 
     assert!(app.release.issues.iter().any(|i| i.key == key));
 }
+
+#[test]
+fn confirm_search_link_to_self_shows_a_guard_status_and_does_not_link() {
+    let mut app = demo_app();
+    app.selected = 0;
+    app.open_detail();
+    let source_key = app.detail.as_ref().unwrap().key.clone();
+    let before = app.detail.as_ref().unwrap().links.len();
+
+    app.open_search_for_link(
+        source_key.clone(),
+        "Blocks".into(),
+        "blocks".into(),
+        crate::domain::LinkDirection::Outward,
+    );
+    // The row for the source issue itself — always present, since Search
+    // rebuilds against the full `all_issues` list on an empty query.
+    let pos = app
+        .search
+        .rows
+        .iter()
+        .position(|r| app.search_row_key(r).as_deref() == Some(source_key.as_str()))
+        .unwrap();
+    app.search.selected = pos;
+
+    app.confirm_search();
+
+    assert_eq!(
+        app.screen,
+        Screen::Search,
+        "should stay on Search, not apply or navigate away"
+    );
+    assert_eq!(app.status, "can't link an issue to itself");
+    assert_eq!(app.detail.as_ref().unwrap().links.len(), before);
+}
+
+#[test]
+fn confirm_search_link_to_creates_the_link_and_returns_to_the_source_screen() {
+    let mut app = demo_app();
+    app.selected = 0;
+    app.open_detail();
+    let source_key = app.detail.as_ref().unwrap().key.clone();
+    let target_key = app.all_issues[1].key.clone();
+    assert_ne!(source_key, target_key);
+    app.screen = Screen::Detail;
+
+    app.open_search_for_link(
+        source_key.clone(),
+        "Blocks".into(),
+        "blocks".into(),
+        crate::domain::LinkDirection::Outward,
+    );
+    let pos = app
+        .search
+        .rows
+        .iter()
+        .position(|r| app.search_row_key(r).as_deref() == Some(target_key.as_str()))
+        .unwrap();
+    app.search.selected = pos;
+
+    app.confirm_search();
+
+    assert_eq!(
+        app.screen,
+        Screen::Detail,
+        "should return to the screen `L` was opened from"
+    );
+    let links = &app.detail.as_ref().unwrap().links;
+    assert!(links
+        .iter()
+        .any(|l| l.key == target_key && l.relation == "blocks"));
+}

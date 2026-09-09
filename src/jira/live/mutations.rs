@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use super::super::config::Config;
 use super::support::{auth_header, get, send, url_encode};
-use crate::domain::AssignableUser;
+use crate::domain::{AssignableUser, LinkDirection, LinkType};
 
 /// Fetch the workflow transitions available from the current status.
 pub fn fetch_transitions(cfg: &Config, key: &str) -> Result<Vec<crate::domain::Transition>> {
@@ -51,6 +51,56 @@ pub fn apply_transition(cfg: &Config, key: &str, transition_id: &str) -> Result<
         "POST",
         &format!("/rest/api/3/issue/{key}/transitions"),
         serde_json::json!({ "transition": { "id": transition_id } }),
+    )
+}
+
+/// Fetch the instance's issue-link-type catalog (Blocks, Duplicate, Relates,
+/// Cloners, plus any custom types) — populates the link-type picker (`L`).
+pub fn fetch_link_types(cfg: &Config) -> Result<Vec<LinkType>> {
+    let data = get(cfg, "/rest/api/3/issueLinkType")?;
+    let arr = data
+        .get("issueLinkTypes")
+        .and_then(|t| t.as_array())
+        .cloned()
+        .unwrap_or_default();
+    Ok(arr
+        .iter()
+        .filter_map(|t| {
+            Some(LinkType {
+                id: t.get("id").and_then(|v| v.as_str())?.to_string(),
+                name: t.get("name").and_then(|v| v.as_str())?.to_string(),
+                inward: t.get("inward").and_then(|v| v.as_str())?.to_string(),
+                outward: t.get("outward").and_then(|v| v.as_str())?.to_string(),
+            })
+        })
+        .collect())
+}
+
+/// Create a link between two issues (`POST /rest/api/3/issueLink`).
+/// `direction` decides which of `source_key`/`target_key` plays the
+/// outward/inward role in `type_name`'s pair (e.g. for "Blocks",
+/// `Outward` means `source_key` blocks `target_key`; `Inward` means
+/// `source_key` is blocked by `target_key`).
+pub fn create_issue_link(
+    cfg: &Config,
+    type_name: &str,
+    source_key: &str,
+    target_key: &str,
+    direction: LinkDirection,
+) -> Result<()> {
+    let (inward_key, outward_key) = match direction {
+        LinkDirection::Outward => (target_key, source_key),
+        LinkDirection::Inward => (source_key, target_key),
+    };
+    send(
+        cfg,
+        "POST",
+        "/rest/api/3/issueLink",
+        serde_json::json!({
+            "type": { "name": type_name },
+            "inwardIssue": { "key": inward_key },
+            "outwardIssue": { "key": outward_key },
+        }),
     )
 }
 
@@ -397,6 +447,117 @@ mod tests {
         apply_transition(&cfg, "DS-1", "31").unwrap();
 
         mock.assert();
+    }
+
+    #[test]
+    fn fetch_link_types_parses_the_catalog() {
+        let mut server = mockito::Server::new();
+        let mock = server
+            .mock("GET", "/rest/api/3/issueLinkType")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{
+                    "issueLinkTypes": [
+                        {"id": "10000", "name": "Blocks", "inward": "is blocked by", "outward": "blocks"},
+                        {"id": "10001", "name": "Relates", "inward": "relates to", "outward": "relates to"}
+                    ]
+                }"#,
+            )
+            .create();
+
+        let cfg = test_config(server.url());
+        let types = fetch_link_types(&cfg).unwrap();
+
+        mock.assert();
+        assert_eq!(
+            types,
+            vec![
+                crate::domain::LinkType {
+                    id: "10000".into(),
+                    name: "Blocks".into(),
+                    inward: "is blocked by".into(),
+                    outward: "blocks".into(),
+                },
+                crate::domain::LinkType {
+                    id: "10001".into(),
+                    name: "Relates".into(),
+                    inward: "relates to".into(),
+                    outward: "relates to".into(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn create_issue_link_outward_sends_source_as_the_outward_issue() {
+        let mut server = mockito::Server::new();
+        let mock = server
+            .mock("POST", "/rest/api/3/issueLink")
+            .match_body(mockito::Matcher::Json(serde_json::json!({
+                "type": { "name": "Blocks" },
+                "inwardIssue": { "key": "DS-2" },
+                "outwardIssue": { "key": "DS-1" }
+            })))
+            .with_status(201)
+            .create();
+
+        let cfg = test_config(server.url());
+        create_issue_link(
+            &cfg,
+            "Blocks",
+            "DS-1",
+            "DS-2",
+            crate::domain::LinkDirection::Outward,
+        )
+        .unwrap();
+
+        mock.assert();
+    }
+
+    #[test]
+    fn create_issue_link_inward_sends_source_as_the_inward_issue() {
+        let mut server = mockito::Server::new();
+        let mock = server
+            .mock("POST", "/rest/api/3/issueLink")
+            .match_body(mockito::Matcher::Json(serde_json::json!({
+                "type": { "name": "Blocks" },
+                "inwardIssue": { "key": "DS-1" },
+                "outwardIssue": { "key": "DS-2" }
+            })))
+            .with_status(201)
+            .create();
+
+        let cfg = test_config(server.url());
+        create_issue_link(
+            &cfg,
+            "Blocks",
+            "DS-1",
+            "DS-2",
+            crate::domain::LinkDirection::Inward,
+        )
+        .unwrap();
+
+        mock.assert();
+    }
+
+    #[test]
+    fn create_issue_link_surfaces_http_errors() {
+        let mut server = mockito::Server::new();
+        server
+            .mock("POST", "/rest/api/3/issueLink")
+            .with_status(400)
+            .create();
+
+        let cfg = test_config(server.url());
+        assert!(create_issue_link(
+            &cfg,
+            "Blocks",
+            "DS-1",
+            "DS-2",
+            crate::domain::LinkDirection::Outward
+        )
+        .is_err());
     }
 
     #[test]
