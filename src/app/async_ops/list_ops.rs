@@ -4,8 +4,8 @@
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::domain::{
-    AssignableUser, IssueDetail, IssueSummary, IssueType, Project, Source, Sprint, Version,
-    ViewKind,
+    AssignableUser, IssueDetail, IssueSummary, IssueType, LinkType, Project, Source, Sprint,
+    Version, ViewKind,
 };
 
 use super::super::loader::load_issues_for;
@@ -98,6 +98,36 @@ fn assignable_users_blocking() -> Vec<AssignableUser> {
         if let Some(cfg) = crate::jira::Config::load() {
             if let Ok(users) = crate::jira::assignable_users(&cfg, &cfg.project) {
                 return users;
+            }
+        }
+    }
+    Vec::new()
+}
+
+/// Spawn a one-shot background fetch of the instance's issue-link-type
+/// catalog, sending the result back as `AppEvent::LinkTypesDiscovered`.
+/// Dispatched once from `App::new` for a genuine live session, mirroring
+/// `dispatch_teammate_discovery` — so the link-type picker (`L`) has data
+/// the moment the user opens it, without a dedicated fetch-on-open
+/// round-trip.
+pub(crate) fn dispatch_link_type_discovery(tx: UnboundedSender<AppEvent>) {
+    tokio::spawn(async move {
+        let types = tokio::task::spawn_blocking(link_types_blocking)
+            .await
+            .unwrap_or_default();
+        let _ = tx.send(AppEvent::LinkTypesDiscovered { types });
+    });
+}
+
+/// Mirrors `assignable_users_blocking`'s "load config, call the live client,
+/// fall back to empty on any failure" shape.
+#[allow(unused_variables)]
+fn link_types_blocking() -> Vec<LinkType> {
+    #[cfg(feature = "live")]
+    {
+        if let Some(cfg) = crate::jira::Config::load() {
+            if let Ok(types) = crate::jira::fetch_link_types(&cfg) {
+                return types;
             }
         }
     }
@@ -489,6 +519,12 @@ impl App {
         let names: Vec<String> = users.iter().map(|u| u.display_name.clone()).collect();
         self.merge_teammate_names(&names);
         self.assignable_users = users;
+    }
+
+    /// Applies `AppEvent::LinkTypesDiscovered` — see
+    /// `dispatch_link_type_discovery` above.
+    pub(super) fn apply_link_types_discovered(&mut self, types: Vec<LinkType>) {
+        self.link_types = types;
     }
 
     /// Applies `AppEvent::ProjectVersionsLoaded` — see

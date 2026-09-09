@@ -34,6 +34,11 @@ pub(crate) fn draw_search(f: &mut Frame, app: &App, area: Rect) {
         SearchPurpose::AddToRelease(version_name) => {
             format!("  add issues to {version_name} — tab select, ⏎ confirm  ",)
         }
+        SearchPurpose::LinkTo {
+            source_key, label, ..
+        } => {
+            format!("  link {source_key} — search for the issue it {label}  ")
+        }
         SearchPurpose::GoTo if live_available => "  search / go to issue  ".to_string(),
         SearchPurpose::GoTo => {
             "  search / go to issue — local only, not a live session  ".to_string()
@@ -168,7 +173,10 @@ pub(crate) fn draw_search(f: &mut Frame, app: &App, area: Rect) {
         // `app.search_row_key` is the same key resolution
         // `search_toggle_bulk_selected` toggles against, so a row's
         // checkbox always agrees with whether `Tab` would check or uncheck it.
-        if app.search.purpose != crate::app::SearchPurpose::GoTo {
+        if matches!(
+            app.search.purpose,
+            crate::app::SearchPurpose::AddToRelease(_)
+        ) {
             if let Some(first) = lines.get_mut(row_start) {
                 let checked = app
                     .search_row_key(row)

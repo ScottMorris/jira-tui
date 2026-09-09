@@ -129,6 +129,21 @@ pub(crate) fn handle_key(app: &mut App, key: KeyEvent) {
         return;
     }
 
+    // Modal: the link-type picker (`L`) captures navigation while open —
+    // mirrors the transition picker's shape exactly.
+    if app.link_picker_open {
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') => app.link_picker_move(-1),
+            KeyCode::Down | KeyCode::Char('j') => app.link_picker_move(1),
+            KeyCode::Enter => app.confirm_link_type(),
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Left | KeyCode::Backspace => {
+                app.close_link_picker()
+            }
+            _ => {}
+        }
+        return;
+    }
+
     // Modal: the attachment picker (`a`, Detail only) — list an issue's
     // attachments, open the highlighted one in the browser (`Enter`/`o`) or
     // download it to disk (`d`). Mirrors the transition picker's shape.
@@ -335,12 +350,19 @@ pub(crate) fn handle_key(app: &mut App, key: KeyEvent) {
     // of going through one of those. `NewIssue` is excluded for the same
     // reason: its typed project/type/summary has no restore path if a
     // palette action changes the screen out from under it (unlike `About`,
-    // which stashes `about_return_screen`).
+    // which stashes `about_return_screen`). `Search` is excluded too: it
+    // holds its own in-progress state (the typed query, and for
+    // `AddToRelease`/`LinkTo` purposes, a multi-step flow keyed off
+    // `search.return_to`) that a palette action re-entering the same flow
+    // (e.g. "link to another issue" while already picking a link's target)
+    // would stomp — `open_search_for_link`/`open_search_for_release`
+    // unconditionally capture `self.screen` as the screen to return to,
+    // which must never be `Screen::Search` itself.
     if key.modifiers.contains(KeyModifiers::CONTROL)
         && key.code == KeyCode::Char('k')
         && !matches!(
             app.screen,
-            Screen::Edit | Screen::Preview | Screen::NewIssue
+            Screen::Edit | Screen::Preview | Screen::NewIssue | Screen::Search
         )
     {
         app.open_palette();
@@ -729,6 +751,17 @@ pub(crate) fn handle_key(app: &mut App, key: KeyEvent) {
         {
             app.open_assignee_picker();
         }
+        // Link-type picker: create a link to another issue (Detail or
+        // quick-view). Same target-resolution scope and "no `list_focus`
+        // guard needed" reasoning as `A`/`c` above.
+        KeyCode::Char('L')
+            if (app.screen == Screen::Detail && app.detail.is_some())
+                || (matches!(app.screen, Screen::Home | Screen::List)
+                    && app.quick_view
+                    && app.quick_view_detail().is_some()) =>
+        {
+            app.open_link_picker();
+        }
         // `R` mirrors `r`'s own "act on whatever's focused" shape: with an
         // issue in view (Detail, or quick view showing one) it manages that
         // issue's Fix/Affects Version(s); otherwise it opens the Release
@@ -881,6 +914,7 @@ fn run_palette_action(app: &mut App, action: &PaletteAction) {
         }
         PaletteAction::Assign => app.open_assignee_picker(),
         PaletteAction::Comment => app.begin_comment(),
+        PaletteAction::LinkIssue => app.open_link_picker(),
         PaletteAction::CopyKey(key) => app.copy_key_value(key),
         PaletteAction::CopyUrl(key) => app.copy_url_for_key(key),
         PaletteAction::OpenInBrowser(key) => app.open_in_browser_for_key(key),

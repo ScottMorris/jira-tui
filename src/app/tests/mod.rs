@@ -1,8 +1,8 @@
 //! Unit tests for `App`, split by concern — mirroring `app/`'s own
 //! per-submodule split (`assign`, `attachments`, `board`, `comments`,
-//! `detail`, `edit`, `field_mapping`, `history`, `links`, `mouse`,
-//! `new_issue`, `onboarding`, `palette`, `paste`, `priority`, `query`,
-//! `quick_view`, `search`, `sort_filter`, `spell_suggest`, `sprint`,
+//! `detail`, `edit`, `field_mapping`, `history`, `link_issue`, `links`,
+//! `mouse`, `new_issue`, `onboarding`, `palette`, `paste`, `priority`,
+//! `query`, `quick_view`, `search`, `sort_filter`, `spell_suggest`, `sprint`,
 //! `versions`, `view_switch`), plus a `transitions` file for the
 //! workflow-transition tests. `support` carries the shared `App` builders
 //! (`demo_app`/`non_demo_app`/`live_app`/`onboarding_app`) and the async
@@ -18,6 +18,7 @@ mod field_mapping;
 mod history;
 #[cfg(feature = "images")]
 mod inline_images;
+mod link_issue;
 mod links;
 mod mouse;
 mod new_issue;

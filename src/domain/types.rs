@@ -217,6 +217,27 @@ pub struct IssueLink {
     pub summary: String,
 }
 
+/// A link-type catalog entry (`GET /rest/api/3/issueLinkType`) — the raw
+/// shape a new link's create payload needs (a type name plus its two
+/// directional labels), unlike the flattened, direction-agnostic
+/// `IssueLink` used purely for display. See `app::link_issue`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinkType {
+    pub id: String,
+    pub name: String,
+    pub inward: String,
+    pub outward: String,
+}
+
+/// Which of a `LinkType`'s two directional labels a new link uses — whether
+/// the issue being linked *from* is the outward or inward side of the pair
+/// (e.g. "blocks" vs. "is blocked by"). See `jira::live::create_issue_link`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LinkDirection {
+    Inward,
+    Outward,
+}
+
 /// One of `IssueDetail::children` — an Epic's child story/task, or a
 /// Story/Task's sub-task. Lighter than `IssueSummary`: just enough to render
 /// and navigate to the child issue.

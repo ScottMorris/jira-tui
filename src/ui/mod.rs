@@ -36,6 +36,7 @@ pub(crate) mod home;
 pub(crate) mod home_columns;
 mod jax_companion;
 mod keymap;
+mod link_picker;
 mod list;
 mod list_columns;
 pub(crate) mod nav_strip;
@@ -70,6 +71,7 @@ use header::draw_header;
 use help::draw_help_overlay;
 use home::draw_home;
 use jax_companion::{draw_jax_companion, draw_jax_mini, JaxMode, MINI_DOCK_WIDTH};
+use link_picker::draw_link_picker;
 use list::draw_list;
 use nav_strip::{draw_nav_strip, nav_strip_visible};
 use nerd_info::draw_nerd_info;
@@ -341,6 +343,10 @@ pub fn draw(f: &mut Frame, app: &App) {
 
     if app.picker_open {
         draw_transition_picker(f, app, f.area());
+    }
+
+    if app.link_picker_open {
+        draw_link_picker(f, app, f.area());
     }
 
     if app.attachments_open {

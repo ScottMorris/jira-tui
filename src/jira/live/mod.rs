@@ -36,8 +36,9 @@ pub use detail::fetch_detail;
 pub use fields::{list_fields, FieldInfo};
 pub use issue_types::list_create_issue_types;
 pub use mutations::{
-    apply_transition, assign_issue, assignable_users, create_issue, fetch_transitions,
-    search_users, set_priority, update_description, update_summary,
+    apply_transition, assign_issue, assignable_users, create_issue, create_issue_link,
+    fetch_link_types, fetch_transitions, search_users, set_priority, update_description,
+    update_summary,
 };
 pub use projects::list_projects;
 pub use search::{

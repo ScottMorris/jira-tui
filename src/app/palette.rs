@@ -47,6 +47,7 @@ pub enum PaletteAction {
     },
     Assign,
     Comment,
+    LinkIssue,
     CopyKey(String),
     CopyUrl(String),
     OpenInBrowser(String),
@@ -205,6 +206,12 @@ impl App {
                     hint: "c",
                     group: PaletteGroup::OnKey,
                     action: PaletteAction::Comment,
+                });
+                rows.push(PaletteRow {
+                    label: "link to another issue".into(),
+                    hint: "L",
+                    group: PaletteGroup::OnKey,
+                    action: PaletteAction::LinkIssue,
                 });
                 // `confirm_transition` only ever acts on `self.detail`, and
                 // the direct `t` key is already gated to `Screen::Detail`

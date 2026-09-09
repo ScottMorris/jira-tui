@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use crate::domain::{IssueSummary, Source};
+use crate::domain::{IssueSummary, LinkDirection, Source};
 
 use super::{async_ops, App, Screen};
 
@@ -41,6 +41,18 @@ pub enum SearchPurpose {
     #[default]
     GoTo,
     AddToRelease(String),
+    /// Picking the target issue for a new link, after the link-type picker
+    /// (`L`) — see `App::open_search_for_link`/`App::confirm_link_type`.
+    /// `source_key` is the issue the link is created *from*; `type_name`/
+    /// `direction` decide the create payload's shape, `label` is the
+    /// human-readable relation shown once the link's created (and echoed in
+    /// the Search screen's title).
+    LinkTo {
+        source_key: String,
+        type_name: String,
+        label: String,
+        direction: LinkDirection,
+    },
 }
 
 /// The Search / go-to-issue screen's state.
@@ -99,6 +111,29 @@ impl App {
         self.search.return_to = self.screen;
         self.search.query.clear();
         self.search.purpose = SearchPurpose::AddToRelease(version_name);
+        self.search.bulk_selected.clear();
+        self.recompute_search();
+        self.screen = Screen::Search;
+    }
+
+    /// Open Search in link-target mode, after the link-type picker (`L`) —
+    /// `Enter` on a row creates the link instead of navigating to it. Mirrors
+    /// `open_search_for_release`'s shape.
+    pub fn open_search_for_link(
+        &mut self,
+        source_key: String,
+        type_name: String,
+        label: String,
+        direction: LinkDirection,
+    ) {
+        self.search.return_to = self.screen;
+        self.search.query.clear();
+        self.search.purpose = SearchPurpose::LinkTo {
+            source_key,
+            type_name,
+            label,
+            direction,
+        };
         self.search.bulk_selected.clear();
         self.recompute_search();
         self.screen = Screen::Search;
@@ -275,8 +310,9 @@ impl App {
     }
 
     /// Open whatever is highlighted in the Search screen: a direct "go to
-    /// issue" jump, or the selected match from the work list — or, in
-    /// bulk-add mode, apply the pending add instead of navigating at all.
+    /// issue" jump, the selected match from the work list, or — depending on
+    /// `purpose` — a bulk-add to a release or the target of a new link,
+    /// instead of navigating at all.
     pub fn confirm_search(&mut self) {
         if let SearchPurpose::AddToRelease(version_name) = self.search.purpose.clone() {
             self.confirm_add_to_release(version_name);
@@ -285,19 +321,32 @@ impl App {
         let Some(row) = self.search.rows.get(self.search.selected).cloned() else {
             return;
         };
-        match row {
-            SearchRow::Goto(key) => self.open_by_key(&key),
-            SearchRow::Match(idx) => {
-                if let Some(issue) = self.all_issues.get(idx) {
-                    let key = issue.key.clone();
-                    self.open_by_key(&key);
+        let Some(key) = self.search_row_key(&row) else {
+            return;
+        };
+        match self.search.purpose.clone() {
+            SearchPurpose::GoTo => self.open_by_key(&key),
+            SearchPurpose::AddToRelease(_) => unreachable!("handled above"),
+            SearchPurpose::LinkTo {
+                source_key,
+                type_name,
+                label,
+                direction,
+            } => {
+                if key == source_key {
+                    self.status = "can't link an issue to itself".into();
+                    return;
                 }
-            }
-            SearchRow::Live(idx) => {
-                if let Some(issue) = self.search.live_results.get(idx) {
-                    let key = issue.key.clone();
-                    self.open_by_key(&key);
-                }
+                let target_summary = self.search_row_summary(&row);
+                self.screen = self.search.return_to;
+                self.apply_create_issue_link(
+                    source_key,
+                    type_name,
+                    label,
+                    direction,
+                    key,
+                    target_summary,
+                );
             }
         }
     }
@@ -306,7 +355,7 @@ impl App {
     /// no-op outside bulk-add mode, so `Tab` staying unbound in ordinary
     /// Search doesn't need its own separate guard at the key-handling layer.
     pub fn search_toggle_bulk_selected(&mut self) {
-        if self.search.purpose == SearchPurpose::GoTo {
+        if !matches!(self.search.purpose, SearchPurpose::AddToRelease(_)) {
             return;
         }
         let Some(row) = self.search.rows.get(self.search.selected).cloned() else {
@@ -329,6 +378,22 @@ impl App {
             SearchRow::Goto(key) => Some(key.clone()),
             SearchRow::Match(idx) => self.all_issues.get(*idx).map(|i| i.key.clone()),
             SearchRow::Live(idx) => self.search.live_results.get(*idx).map(|i| i.key.clone()),
+        }
+    }
+
+    /// The issue summary a `SearchRow` carries, if any — `None` for a direct
+    /// "go to issue" entry (there's no fetched summary to show yet). Used to
+    /// seed a newly-created `IssueLink`'s display text without a dedicated
+    /// fetch — see `App::confirm_search`'s `LinkTo` arm.
+    fn search_row_summary(&self, row: &SearchRow) -> Option<String> {
+        match row {
+            SearchRow::Goto(_) => None,
+            SearchRow::Match(idx) => self.all_issues.get(*idx).map(|i| i.summary.clone()),
+            SearchRow::Live(idx) => self
+                .search
+                .live_results
+                .get(*idx)
+                .map(|i| i.summary.clone()),
         }
     }
 

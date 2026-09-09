@@ -5,8 +5,8 @@
 //! match arm — not a whole logic block — per new `AppEvent` variant.
 
 use crate::domain::{
-    AssignableUser, Attachment, Comment, IssueDetail, IssueSummary, IssueType, Priority, Project,
-    Source, Sprint, Version, ViewKind,
+    AssignableUser, Attachment, Comment, IssueDetail, IssueLink, IssueSummary, IssueType, LinkType,
+    Priority, Project, Source, Sprint, Version, ViewKind,
 };
 
 use super::super::{App, ReleaseBulkKind, Screen};
@@ -314,6 +314,25 @@ pub enum AppEvent {
         generation: u64,
         resolved: Vec<(String, super::super::InlineImageKey, String)>,
     },
+    /// A one-shot background fetch of the instance's issue-link-type catalog
+    /// resolved, dispatched once at startup for a genuine live session — see
+    /// `dispatch_link_type_discovery`. Mirrors `TeammatesDiscovered`: carries
+    /// no `generation`, since it only replaces `App::link_types` wholesale
+    /// and can't be made stale by an unrelated refresh/switch_view.
+    LinkTypesDiscovered { types: Vec<LinkType> },
+    /// A new issue link resolved (or failed) against live Jira — see
+    /// `App::confirm_link_type`/`dispatch_create_issue_link`. `link` is the
+    /// locally-constructed `IssueLink` to display: Jira's create-link
+    /// endpoint returns no body to build one from (same "write-only, no
+    /// rich return type" shape as `apply_transition`/`assign_issue`), so the
+    /// optimistic value built at dispatch time is also the one applied on
+    /// success.
+    IssueLinkCreated {
+        generation: u64,
+        key: String,
+        link: IssueLink,
+        error: Option<String>,
+    },
 }
 
 impl App {
@@ -486,6 +505,13 @@ impl App {
                 generation,
                 resolved,
             } => self.apply_inline_image_uuids_resolved(generation, resolved),
+            AppEvent::LinkTypesDiscovered { types } => self.apply_link_types_discovered(types),
+            AppEvent::IssueLinkCreated {
+                generation,
+                key,
+                link,
+                error,
+            } => self.apply_issue_link_created(generation, key, link, error),
         }
     }
 }
